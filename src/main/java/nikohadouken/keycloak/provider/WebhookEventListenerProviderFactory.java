@@ -5,6 +5,10 @@ import org.keycloak.events.EventListenerProvider;
 import org.keycloak.events.EventListenerProviderFactory;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
+
+import java.util.Arrays;
+import java.util.List;
+
 import org.jboss.logging.Logger;
 
 import nikohadouken.keycloak.webhook.WebhookClient;
@@ -15,16 +19,18 @@ public class WebhookEventListenerProviderFactory implements EventListenerProvide
 
     private static final String ENV_WEBHOOKS_BASE_URL = "KEYCLOAK_WEBHOOKS_BASE_URL";
     private static final String ENV_WEBHOOKS_API_KEY = "KEYCLOAK_WEBHOOKS_API_KEY";
+    private static final String ENV_WEBHOOKS_TAKEN = "KEYCLOAK_WEBHOOKS_TAKEN";
 
     private String baseUrl;
     private String apiKey;
+    private List<String> taken;
 
     @Override
     public EventListenerProvider create(KeycloakSession keycloakSession) {
 
         WebhookClient client = new WebhookClient(baseUrl, apiKey);
 
-        return new WebhookEventListenerProvider(client, keycloakSession, logger);
+        return new WebhookEventListenerProvider(client, keycloakSession, logger, taken);
     }
 
     @Override
@@ -36,6 +42,12 @@ public class WebhookEventListenerProviderFactory implements EventListenerProvide
         String apiKey = System.getenv(ENV_WEBHOOKS_API_KEY);
         if (apiKey != null) {
             this.apiKey = apiKey;
+        } else {
+            this.apiKey = "";
+        }
+        String taken = System.getenv(ENV_WEBHOOKS_TAKEN);
+        if (taken != null) {
+            this.taken = Arrays.asList(taken.split(","));
         }
     }
 

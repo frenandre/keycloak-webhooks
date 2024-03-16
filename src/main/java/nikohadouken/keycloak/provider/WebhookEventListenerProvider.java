@@ -1,15 +1,15 @@
 package nikohadouken.keycloak.provider;
 
+import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
-import javax.json.*;
+import jakarta.json.*;
 import org.jboss.logging.Logger;
 import org.keycloak.events.admin.AdminEvent;
 import org.keycloak.events.Event;
 import org.keycloak.events.EventListenerProvider;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.UserModel;
-import com.google.gson.Gson;
 
 import nikohadouken.keycloak.webhook.WebhookClient;
 import nikohadouken.keycloak.webhook.WebhookClientException;
@@ -20,26 +20,30 @@ public class WebhookEventListenerProvider implements EventListenerProvider {
     private Logger logger;
     private Boolean showGroups;
     private Boolean showAttributes;
+    private List<String> taken;
 
     private WebhookClient client;
 
     public WebhookEventListenerProvider(
             WebhookClient client,
             KeycloakSession session,
-            Logger logger) {
+            Logger logger,
+            List<String> taken) {
         this.client = client;
         this.session = session;
         this.logger = logger;
+        this.taken = taken;
         this.showGroups = true;
         this.showAttributes = true;
     }
 
     @Override
     public void onEvent(Event event) {
-        logger.info("Event Occurred:" + toString(event));
-
+        if (logger.isInfoEnabled())
+            logger.info("Event Occurred:" + toString(event));
         try {
-            client.publish(toJson2(event));
+            if (taken == null || taken.contains(event.getType().toString()))
+                client.publish(toJson(event));
         } catch (WebhookClientException e) {
             logger.error(e);
         }
@@ -47,9 +51,11 @@ public class WebhookEventListenerProvider implements EventListenerProvider {
 
     @Override
     public void onEvent(AdminEvent adminEvent, boolean b) {
-        logger.info("Admin Event Occurred:" + toString(adminEvent));
+        if (logger.isInfoEnabled())
+            logger.info("Admin Event Occurred:" + toString(adminEvent));
         try {
-            client.publish(toJson2(adminEvent));
+            if (taken == null || taken.contains(adminEvent.getOperationType().toString()))
+                client.publish(toJson(adminEvent));
         } catch (WebhookClientException e) {
             logger.error(e);
         }
@@ -184,21 +190,18 @@ public class WebhookEventListenerProvider implements EventListenerProvider {
     // into another JsonObjectBuilder later on.
     //
     private JsonObjectBuilder userAttributes(UserModel user) {
-        JsonObjectBuilder jsonObj = Json.createObjectBuilder();
-        Map<String, List<String>> attrs = user.getAttributes();
+        JsonObjectBuilder obj = Json.createObjectBuilder();
+        obj.add("userId", user.getId());
+        if (user.getEmail() != null)
+            obj.add("email", user.getEmail());
+        if (user.getFirstName() != null)
+            obj.add("firstName", user.getFirstName());
+        if (user.getLastName() != null)
+            obj.add("lastName", user.getLastName());
+        if (user.getUsername() != null)
+            obj.add("username", user.getUsername());
 
-        for (Map.Entry<String, List<String>> e : attrs.entrySet()) {
-            JsonArrayBuilder jsonArray = Json.createArrayBuilder();
-            for (String value : e.getValue()) {
-                if (value != null) {
-                    jsonArray.add(value);
-                }
-            }
-
-            jsonObj.add(e.getKey(), jsonArray);
-        }
-
-        return jsonObj;
+        return obj;
     }
 
     private String toJson(Event event) {
@@ -219,7 +222,6 @@ public class WebhookEventListenerProvider implements EventListenerProvider {
 
         if (event.getUserId() != null) {
             String userId = event.getUserId().toString();
-            obj.add("userId", userId);
 
             UserModel user = getUserModelById(userId);
             if (user != null) {
@@ -270,21 +272,9 @@ public class WebhookEventListenerProvider implements EventListenerProvider {
                 obj.add("clientId", adminEvent.getAuthDetails().getClientId().toString());
             }
 
-            if (adminEvent.getAuthDetails().getUserId() != null) {
-                String userId = adminEvent.getAuthDetails().getUserId().toString();
-                obj.add("userId", userId);
-
-                UserModel user = getUserModelById(userId);
-                if (user != null) {
-
-                    if (showGroups) {
-                        obj.add("userGroups", userGroups(user));
-                    }
-
-                    if (showAttributes) {
-                        obj.add("userAttributes", userAttributes(user));
-                    }
-                }
+            if (adminEvent.getRepresentation() != null) {
+                JsonReader reader = Json.createReader(new StringReader(adminEvent.getRepresentation()));
+                obj.add("representation", reader.readObject());
             }
 
             if (adminEvent.getAuthDetails().getIpAddress() != null) {
@@ -308,13 +298,4 @@ public class WebhookEventListenerProvider implements EventListenerProvider {
         return obj.build().toString();
     }
 
-    String toJson2(Event event) {
-        Gson gson = new Gson();
-        return gson.toJson(event);
-    }
-
-    String toJson2(AdminEvent event) {
-        Gson gson = new Gson();
-        return gson.toJson(event);
-    }
 }
